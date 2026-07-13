@@ -1,8 +1,5 @@
 {
-  "name": "Static Riot",
-  "description": "Edgy, high-converting ecommerce platform for band tees and graphic streetwear with AI-powered mockup generation.",
-  "requestFramePermissions": [
-    "camera",
-    "microphone"
-  ]
+  "name": "Pooki CDN",
+  "description": "A personal photo CDN — upload images once and reuse them across all your apps via stable, cacheable URLs.",
+  "requestFramePermissions": []
 }
