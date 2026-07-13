@@ -8,10 +8,11 @@ import {
   LogOut,
   Loader2,
   Link2,
-  Pencil,
   X,
   KeyRound,
+  AlertTriangle,
 } from 'lucide-react';
+import { upload } from '@vercel/blob/client';
 import { AnimatePresence, motion } from 'motion/react';
 import { cn, formatBytes, timeAgo } from './utils';
 
@@ -19,48 +20,60 @@ import { cn, formatBytes, timeAgo } from './utils';
 // Types
 // ---------------------------------------------------------------------------
 interface CdnImage {
-  id: number;
-  filename: string;
+  id: string; // blob pathname (unique)
+  pathname: string;
   original_name: string;
-  mimetype: string;
+  url: string;
   size: number;
   created_at: string;
-  url: string;
 }
 
+type AuthState = { ok: boolean; storageReady: boolean };
+
 // ---------------------------------------------------------------------------
-// Tiny API client
+// API client (Vercel Blob backed)
 // ---------------------------------------------------------------------------
 const api = (token: string) => {
   const headers = { Authorization: `Bearer ${token}` };
   return {
-    async check() {
-      const r = await fetch('/api/auth', { headers });
-      return r.ok;
+    // Probing /api/images doubles as the auth + storage-readiness check.
+    async check(): Promise<AuthState> {
+      const r = await fetch('/api/images', { headers });
+      if (r.status === 401) return { ok: false, storageReady: false };
+      if (r.status === 503) return { ok: true, storageReady: false };
+      return { ok: r.ok, storageReady: r.ok };
     },
-    async list(q = ''): Promise<CdnImage[]> {
-      const r = await fetch(`/api/images?q=${encodeURIComponent(q)}`, { headers });
+    async list(): Promise<CdnImage[]> {
+      const r = await fetch('/api/images', { headers });
       if (!r.ok) throw new Error('Failed to load images');
       return r.json();
     },
     async upload(files: File[]): Promise<CdnImage[]> {
-      const fd = new FormData();
-      files.forEach((f) => fd.append('files', f));
-      const r = await fetch('/api/upload', { method: 'POST', headers, body: fd });
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Upload failed');
-      return r.json();
+      const results = await Promise.all(
+        files.map(async (f) => {
+          const blob = await upload(f.name, f, {
+            access: 'public',
+            handleUploadUrl: '/api/blob-upload',
+            clientPayload: token,
+          });
+          return {
+            id: blob.pathname,
+            pathname: blob.pathname,
+            original_name: blob.pathname,
+            url: blob.url,
+            size: f.size,
+            created_at: new Date().toISOString(),
+          } satisfies CdnImage;
+        })
+      );
+      return results;
     },
-    async rename(id: number, original_name: string): Promise<CdnImage> {
-      const r = await fetch(`/api/images/${id}`, {
-        method: 'PATCH',
+    async remove(url: string) {
+      const r = await fetch('/api/images', {
+        method: 'DELETE',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ original_name }),
+        body: JSON.stringify({ url }),
       });
-      if (!r.ok) throw new Error('Rename failed');
-      return r.json();
-    },
-    async remove(id: number) {
-      const r = await fetch(`/api/images/${id}`, { method: 'DELETE', headers });
       if (!r.ok) throw new Error('Delete failed');
     },
   };
@@ -121,7 +134,7 @@ function TokenGate({ onAuthed }: { onAuthed: (token: string) => void }) {
     setLoading(true);
     setError('');
     try {
-      const ok = await api(token).check();
+      const { ok } = await api(token).check();
       if (!ok) throw new Error();
       localStorage.setItem('cdn_token', token);
       onAuthed(token);
@@ -169,14 +182,44 @@ function TokenGate({ onAuthed }: { onAuthed: (token: string) => void }) {
 }
 
 // ---------------------------------------------------------------------------
+// Storage-not-configured banner
+// ---------------------------------------------------------------------------
+function StorageSetupNotice() {
+  return (
+    <div className="mb-6 rounded-xl border border-amber-500/30 bg-amber-500/10 p-5 text-sm text-amber-100">
+      <div className="mb-2 flex items-center gap-2 font-semibold text-amber-300">
+        <AlertTriangle size={16} />
+        Storage isn&apos;t connected yet
+      </div>
+      <p className="text-amber-100/80">
+        Your token works, but this project has no Blob store attached. In the Vercel
+        dashboard:
+      </p>
+      <ol className="mt-2 list-decimal space-y-1 pl-5 text-amber-100/80">
+        <li>
+          Open <span className="font-medium text-amber-100">Storage → Create Database → Blob</span>{' '}
+          and connect it to this project (this adds <code>BLOB_READ_WRITE_TOKEN</code>).
+        </li>
+        <li>
+          Confirm the <code>CDN_TOKEN</code> environment variable is set.
+        </li>
+        <li>Redeploy. Uploads will work immediately after.</li>
+      </ol>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Upload zone
 // ---------------------------------------------------------------------------
 function UploadZone({
   onUploaded,
   token,
+  disabled,
 }: {
   onUploaded: (imgs: CdnImage[]) => void;
   token: string;
+  disabled?: boolean;
 }) {
   const [dragging, setDragging] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
@@ -184,6 +227,7 @@ function UploadZone({
   const toast = useToast();
 
   const handleFiles = async (fileList: FileList | null) => {
+    if (disabled) return;
     if (!fileList || fileList.length === 0) return;
     const files = Array.from(fileList).filter((f) => f.type.startsWith('image/'));
     if (files.length === 0) return toast('Only image files are supported.', 'err');
@@ -193,7 +237,7 @@ function UploadZone({
       onUploaded(created);
       toast(`Uploaded ${created.length} image${created.length > 1 ? 's' : ''}.`);
     } catch (e: any) {
-      toast(e.message || 'Upload failed.', 'err');
+      toast(e?.message || 'Upload failed.', 'err');
     } finally {
       setBusy(false);
     }
@@ -203,7 +247,7 @@ function UploadZone({
     <div
       onDragOver={(e) => {
         e.preventDefault();
-        setDragging(true);
+        if (!disabled) setDragging(true);
       }}
       onDragLeave={() => setDragging(false)}
       onDrop={(e) => {
@@ -211,12 +255,15 @@ function UploadZone({
         setDragging(false);
         handleFiles(e.dataTransfer.files);
       }}
-      onClick={() => inputRef.current?.click()}
+      onClick={() => !disabled && inputRef.current?.click()}
       className={cn(
-        'group relative flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-6 py-12 text-center transition',
-        dragging
+        'group relative flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-6 py-12 text-center transition',
+        disabled
+          ? 'cursor-not-allowed border-white/10 bg-zinc-900/30 opacity-60'
+          : 'cursor-pointer',
+        !disabled && dragging
           ? 'border-indigo-400 bg-indigo-500/10'
-          : 'border-white/15 bg-zinc-900/50 hover:border-white/30 hover:bg-zinc-900'
+          : !disabled && 'border-white/15 bg-zinc-900/50 hover:border-white/30 hover:bg-zinc-900'
       )}
     >
       <input
@@ -271,43 +318,22 @@ function ImageCard({
   img,
   token,
   onDeleted,
-  onRenamed,
 }: {
   img: CdnImage;
   token: string;
-  onDeleted: (id: number) => void;
-  onRenamed: (img: CdnImage) => void;
+  onDeleted: (id: string) => void;
 }) {
   const { copiedKey, copy } = useCopy();
-  const [editing, setEditing] = React.useState(false);
-  const [name, setName] = React.useState(img.original_name);
   const toast = useToast();
 
   const del = async () => {
     if (!confirm(`Delete "${img.original_name}"? This cannot be undone.`)) return;
     try {
-      await api(token).remove(img.id);
+      await api(token).remove(img.url);
       onDeleted(img.id);
       toast('Image deleted.');
     } catch {
       toast('Delete failed.', 'err');
-    }
-  };
-
-  const saveName = async () => {
-    const trimmed = name.trim();
-    setEditing(false);
-    if (!trimmed || trimmed === img.original_name) {
-      setName(img.original_name);
-      return;
-    }
-    try {
-      const updated = await api(token).rename(img.id, trimmed);
-      onRenamed(updated);
-      toast('Renamed.');
-    } catch {
-      setName(img.original_name);
-      toast('Rename failed.', 'err');
     }
   };
 
@@ -334,41 +360,15 @@ function ImageCard({
       </a>
 
       <div className="space-y-2 p-3">
-        {editing ? (
-          <input
-            autoFocus
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={saveName}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') saveName();
-              if (e.key === 'Escape') {
-                setName(img.original_name);
-                setEditing(false);
-              }
-            }}
-            className="w-full rounded border border-indigo-500 bg-zinc-950 px-2 py-1 text-sm text-white outline-none"
-          />
-        ) : (
-          <div className="flex items-center gap-1">
-            <span
-              className="truncate text-sm font-medium text-white"
-              title={img.original_name}
-            >
-              {img.original_name}
-            </span>
-            <button
-              onClick={() => setEditing(true)}
-              className="shrink-0 text-zinc-500 opacity-0 transition hover:text-white group-hover:opacity-100"
-              title="Rename"
-            >
-              <Pencil size={13} />
-            </button>
-          </div>
-        )}
+        <span
+          className="block truncate text-sm font-medium text-white"
+          title={img.original_name}
+        >
+          {img.original_name}
+        </span>
 
         <div className="flex items-center justify-between text-xs text-zinc-500">
-          <span>{formatBytes(img.size)}</span>
+          <span>{img.size ? formatBytes(img.size) : ''}</span>
           <span>{timeAgo(img.created_at)}</span>
         </div>
 
@@ -436,13 +436,25 @@ function CopyBtn({
 // ---------------------------------------------------------------------------
 // Dashboard
 // ---------------------------------------------------------------------------
-function Dashboard({ token, onLogout }: { token: string; onLogout: () => void }) {
+function Dashboard({
+  token,
+  storageReady,
+  onLogout,
+}: {
+  token: string;
+  storageReady: boolean;
+  onLogout: () => void;
+}) {
   const [images, setImages] = React.useState<CdnImage[]>([]);
-  const [loading, setLoading] = React.useState(true);
+  const [loading, setLoading] = React.useState(storageReady);
   const [query, setQuery] = React.useState('');
   const toast = useToast();
 
   const load = React.useCallback(async () => {
+    if (!storageReady) {
+      setLoading(false);
+      return;
+    }
     try {
       setImages(await api(token).list());
     } catch {
@@ -450,7 +462,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
     } finally {
       setLoading(false);
     }
-  }, [token, toast]);
+  }, [token, storageReady, toast]);
 
   React.useEffect(() => {
     load();
@@ -459,13 +471,10 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return images;
-    return images.filter(
-      (i) =>
-        i.original_name.toLowerCase().includes(q) || i.filename.toLowerCase().includes(q)
-    );
+    return images.filter((i) => i.original_name.toLowerCase().includes(q));
   }, [images, query]);
 
-  const totalSize = images.reduce((sum, i) => sum + i.size, 0);
+  const totalSize = images.reduce((sum, i) => sum + (i.size || 0), 0);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -508,61 +517,67 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+        {!storageReady && <StorageSetupNotice />}
+
         <UploadZone
           token={token}
+          disabled={!storageReady}
           onUploaded={(imgs) => setImages((prev) => [...imgs, ...prev])}
         />
 
-        <div className="mt-4 sm:hidden">
-          <div className="relative">
-            <Search
-              size={15}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
-            />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search images…"
-              className="w-full rounded-lg border border-white/10 bg-zinc-900 py-2 pl-9 pr-3 text-sm text-white placeholder-zinc-500 outline-none focus:border-indigo-500"
-            />
-          </div>
-        </div>
-
-        {loading ? (
-          <div className="flex items-center justify-center py-24 text-zinc-500">
-            <Loader2 className="animate-spin" />
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 text-center text-zinc-500">
-            <ImageIcon size={40} className="mb-3 opacity-40" />
-            <p className="font-medium text-zinc-400">
-              {images.length === 0 ? 'No images yet' : 'No matches'}
-            </p>
-            <p className="text-sm">
-              {images.length === 0
-                ? 'Upload your first image to get started.'
-                : 'Try a different search.'}
-            </p>
-          </div>
-        ) : (
-          <motion.div
-            layout
-            className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4"
-          >
-            <AnimatePresence mode="popLayout">
-              {filtered.map((img) => (
-                <ImageCard
-                  key={img.id}
-                  img={img}
-                  token={token}
-                  onDeleted={(id) => setImages((prev) => prev.filter((x) => x.id !== id))}
-                  onRenamed={(u) =>
-                    setImages((prev) => prev.map((x) => (x.id === u.id ? u : x)))
-                  }
+        {storageReady && (
+          <>
+            <div className="mt-4 sm:hidden">
+              <div className="relative">
+                <Search
+                  size={15}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
                 />
-              ))}
-            </AnimatePresence>
-          </motion.div>
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search images…"
+                  className="w-full rounded-lg border border-white/10 bg-zinc-900 py-2 pl-9 pr-3 text-sm text-white placeholder-zinc-500 outline-none focus:border-indigo-500"
+                />
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="flex items-center justify-center py-24 text-zinc-500">
+                <Loader2 className="animate-spin" />
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-24 text-center text-zinc-500">
+                <ImageIcon size={40} className="mb-3 opacity-40" />
+                <p className="font-medium text-zinc-400">
+                  {images.length === 0 ? 'No images yet' : 'No matches'}
+                </p>
+                <p className="text-sm">
+                  {images.length === 0
+                    ? 'Upload your first image to get started.'
+                    : 'Try a different search.'}
+                </p>
+              </div>
+            ) : (
+              <motion.div
+                layout
+                className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4"
+              >
+                <AnimatePresence mode="popLayout">
+                  {filtered.map((img) => (
+                    <ImageCard
+                      key={img.id}
+                      img={img}
+                      token={token}
+                      onDeleted={(id) =>
+                        setImages((prev) => prev.filter((x) => x.id !== id))
+                      }
+                    />
+                  ))}
+                </AnimatePresence>
+              </motion.div>
+            )}
+          </>
         )}
       </main>
     </div>
@@ -574,7 +589,17 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
 // ---------------------------------------------------------------------------
 export default function App() {
   const [token, setToken] = React.useState<string | null>(null);
+  const [storageReady, setStorageReady] = React.useState(false);
   const [ready, setReady] = React.useState(false);
+
+  const authenticate = React.useCallback(async (t: string) => {
+    const { ok, storageReady } = await api(t).check();
+    if (ok) {
+      setToken(t);
+      setStorageReady(storageReady);
+    }
+    return ok;
+  }, []);
 
   React.useEffect(() => {
     const saved = localStorage.getItem('cdn_token');
@@ -582,14 +607,12 @@ export default function App() {
       setReady(true);
       return;
     }
-    api(saved)
-      .check()
+    authenticate(saved)
       .then((ok) => {
-        if (ok) setToken(saved);
-        else localStorage.removeItem('cdn_token');
+        if (!ok) localStorage.removeItem('cdn_token');
       })
       .finally(() => setReady(true));
-  }, []);
+  }, [authenticate]);
 
   const logout = () => {
     localStorage.removeItem('cdn_token');
@@ -606,9 +629,14 @@ export default function App() {
   return (
     <ToastHost>
       {token ? (
-        <Dashboard token={token} onLogout={logout} />
+        <Dashboard token={token} storageReady={storageReady} onLogout={logout} />
       ) : (
-        <TokenGate onAuthed={setToken} />
+        <TokenGate
+          onAuthed={(t) => {
+            // Re-run the check so we also learn storage readiness.
+            authenticate(t);
+          }}
+        />
       )}
     </ToastHost>
   );

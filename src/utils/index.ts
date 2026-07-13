@@ -14,7 +14,7 @@ export function formatBytes(bytes: number): string {
 }
 
 export function timeAgo(dateStr: string): string {
-  // SQLite CURRENT_TIMESTAMP is UTC without a timezone suffix; normalize it.
+  // Accept ISO strings (Blob uploadedAt) or "YYYY-MM-DD HH:MM:SS" UTC; normalize.
   const iso = dateStr.includes("T") ? dateStr : dateStr.replace(" ", "T") + "Z";
   const then = new Date(iso).getTime();
   const seconds = Math.max(0, Math.floor((Date.now() - then) / 1000));

@@ -4,13 +4,8 @@ node_modules/
 # build output
 dist/
 
-# uploaded images (your CDN content lives on disk / object storage, not git)
-uploads/
-
-# sqlite database + write-ahead-log files
-*.db
-*.db-shm
-*.db-wal
+# vercel
+.vercel
 
 # env
 .env
