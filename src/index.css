@@ -1,1 +1,237 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial,
+    sans-serif;
+  --font-serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  --color-ink-50: #f6f5f2;
+  --color-ink-100: #eceae4;
+  --color-ink-200: #d9d5cb;
+  --color-ink-300: #b8b2a4;
+  --color-ink-400: #8a8477;
+  --color-ink-500: #625d53;
+  --color-ink-600: #46423b;
+  --color-ink-700: #302d28;
+  --color-ink-800: #1f1d1a;
+  --color-ink-900: #141310;
+
+  --color-moss-300: #7fbfa4;
+  --color-moss-400: #4fa583;
+  --color-moss-500: #2f8765;
+  --color-moss-600: #216b4f;
+  --color-moss-700: #17513c;
+}
+
+:root {
+  color-scheme: light dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-ink-50);
+  color: var(--color-ink-800);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: var(--color-ink-900);
+    color: var(--color-ink-100);
+  }
+}
+
+/* Article typography — applied to the rendered markdown */
+.prose-post {
+  font-family: var(--font-serif);
+  font-size: 1.0625rem;
+  line-height: 1.72;
+  color: var(--color-ink-700);
+}
+
+@media (prefers-color-scheme: dark) {
+  .prose-post {
+    color: var(--color-ink-200);
+  }
+}
+
+.prose-post > * + * {
+  margin-top: 1.15em;
+}
+
+.prose-post h1 {
+  font-size: 2rem;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin-top: 0;
+  color: var(--color-ink-900);
+}
+
+.prose-post h2 {
+  font-size: 1.4rem;
+  line-height: 1.3;
+  font-weight: 600;
+  margin-top: 2.1em;
+  padding-top: 0.15em;
+  border-top: 1px solid var(--color-ink-200);
+  color: var(--color-ink-900);
+}
+
+.prose-post h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-top: 1.7em;
+  color: var(--color-ink-900);
+}
+
+@media (prefers-color-scheme: dark) {
+  .prose-post h1,
+  .prose-post h2,
+  .prose-post h3 {
+    color: var(--color-ink-50);
+  }
+
+  .prose-post h2 {
+    border-top-color: var(--color-ink-700);
+  }
+}
+
+.prose-post ul,
+.prose-post ol {
+  padding-left: 1.35em;
+}
+
+.prose-post ul {
+  list-style: disc;
+}
+
+.prose-post ol {
+  list-style: decimal;
+}
+
+.prose-post li + li {
+  margin-top: 0.4em;
+}
+
+.prose-post a {
+  color: var(--color-moss-600);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .prose-post a {
+    color: var(--color-moss-300);
+  }
+}
+
+.prose-post strong {
+  font-weight: 600;
+  color: var(--color-ink-900);
+}
+
+@media (prefers-color-scheme: dark) {
+  .prose-post strong {
+    color: var(--color-ink-50);
+  }
+}
+
+.prose-post blockquote {
+  border-left: 3px solid var(--color-moss-400);
+  padding-left: 1em;
+  font-style: italic;
+  color: var(--color-ink-500);
+}
+
+.prose-post code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background: var(--color-ink-100);
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+}
+
+.prose-post pre {
+  background: var(--color-ink-800);
+  color: var(--color-ink-100);
+  padding: 1em;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.prose-post pre code {
+  background: transparent;
+  padding: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .prose-post code {
+    background: var(--color-ink-800);
+  }
+}
+
+.prose-post table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+}
+
+.prose-post th,
+.prose-post td {
+  border: 1px solid var(--color-ink-200);
+  padding: 0.55em 0.7em;
+  text-align: left;
+  vertical-align: top;
+}
+
+.prose-post th {
+  background: var(--color-ink-100);
+  font-weight: 600;
+}
+
+@media (prefers-color-scheme: dark) {
+  .prose-post th,
+  .prose-post td {
+    border-color: var(--color-ink-700);
+  }
+
+  .prose-post th {
+    background: var(--color-ink-800);
+  }
+}
+
+.prose-post hr {
+  border: 0;
+  border-top: 1px solid var(--color-ink-200);
+}
+
+/* Blinking caret while streaming */
+@keyframes caret-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  55%,
+  100% {
+    opacity: 0.15;
+  }
+}
+
+.streaming-caret {
+  display: inline-block;
+  width: 0.5ch;
+  height: 1.05em;
+  vertical-align: text-bottom;
+  background: var(--color-moss-500);
+  animation: caret-blink 1s steps(1, end) infinite;
+}

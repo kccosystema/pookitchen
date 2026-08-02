@@ -1,8 +1,0 @@
-{
-  "name": "Static Riot",
-  "description": "Edgy, high-converting ecommerce platform for band tees and graphic streetwear with AI-powered mockup generation.",
-  "requestFramePermissions": [
-    "camera",
-    "microphone"
-  ]
-}
